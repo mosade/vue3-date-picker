@@ -26,7 +26,7 @@
 </template>
 
 <script setup>
-import { computed, ref, shallowRef, watch } from 'vue'
+import { computed, onMounted, onUnmounted, ref, shallowRef, watch } from 'vue'
 import dayjs from 'dayjs'
 import WeekPicker from './WeekPicker.vue'
 import {
@@ -68,6 +68,13 @@ import {
  *   - 在面板里点选 / 父组件赋值：区间听传入的，锚点同样按 drillTo 口径落在新区间里
  *     （默认口径下保住「周几 / 几号 / 几月几号」，裁到月末，最后退回区间起点）。
  *     例：年视图点 2027，再切回日 -> 2027-07-20（记住月日）。
+ *
+ * T-n 限制（earliest / latest）三条语义：
+ *   - 面板**按天**禁用：整周 / 整月 / 整年全在范围外才点不动，只有部分可用仍然可点
+ *     （所以「含 T-1 的那一周」永远可点，而今天所在的那一周可能整周都点不动 ——
+ *     例如 latest="T-1" 且今天正好是周一）；
+ *   - 夹取只作用于锚点，而且是**单向**的：放开限制不会弹回被挤掉的那个原值；
+ *   - 「今天」在跨零点时会自动重算，不会一直停在打开页面那天的口径上。
  */
 const PICKER_TYPE = { day: 'date', month: 'month', year: 'year' }
 const PICKER_FORMAT = { day: 'YYYY-MM-DD', month: 'YYYY 年 MM 月', year: 'YYYY 年' }
@@ -99,7 +106,34 @@ const anchor = shallowRef(dayjs())
 // 当前区间永远是「包含 anchor 的那个窗口」，没有第二份状态，也就不会两边打架
 const period = computed(() => periodOf(anchor.value, range.value))
 
-const now = computed(() => (props.today ? dayjs(props.today) : dayjs()))
+/**
+ * 页面开着过夜时，T-1 / T-30 这类相对限制必须自己醒一次。
+ * computed 只认响应式依赖，直接写 dayjs() 是取不到新日期的：它会一直停在打开页面那天，
+ * 于是「数据只到 T-1」在零点之后还允许选到昨天之前。用 dayTick 在跨零点时踢一脚。
+ */
+const dayTick = ref(0)
+let dayTimer
+
+function scheduleDayTick() {
+  const start = dayjs()
+  const nextMidnight = start.add(1, 'day').startOf('day').add(1, 'second')
+  // setTimeout 超过 2^31-1 ms 会溢出，先夹一下（一天远小于它，这里只是保险）
+  dayTimer = setTimeout(() => {
+    dayTick.value += 1
+    scheduleDayTick()
+  }, Math.min(nextMidnight.diff(start), 2 ** 31 - 1))
+}
+
+onMounted(() => {
+  if (!props.today) scheduleDayTick()
+})
+onUnmounted(() => clearTimeout(dayTimer))
+
+const now = computed(() => {
+  if (props.today) return dayjs(props.today)
+  dayTick.value // 跨零点触发重算
+  return dayjs()
+})
 const limits = computed(() =>
   resolveLimits({ earliest: props.earliest, latest: props.latest }, now.value),
 )
@@ -164,8 +198,6 @@ const rangeModel = computed({
 
 /** 限制变化（或被父组件改写）时，把锚点拉回可选范围。 */
 function applyLimits() {
-  warnBadLimit('earliest', props.earliest, limits.value.min)
-  warnBadLimit('latest', props.latest, limits.value.max)
   if (!limitOn.value) return
   const clamped = withLimits(anchor.value)
   if (!clamped.isSame(anchor.value)) {
@@ -184,7 +216,18 @@ function warnBadLimit(name, raw, parsed) {
   }
 }
 
-watch([() => props.earliest, () => props.latest, () => props.today], applyLimits)
+// 只在参数本身变化时报警，避免跨零点重算时重复刷屏
+watch(
+  [() => props.earliest, () => props.latest],
+  () => {
+    warnBadLimit('earliest', props.earliest, limits.value.min)
+    warnBadLimit('latest', props.latest, limits.value.max)
+  },
+  { immediate: true },
+)
+
+// limits 依赖 earliest / latest / today；今天跨零点换天后它会重算，锚点跟着回到新范围内
+watch(limits, applyLimits)
 
 watch(
   model,
