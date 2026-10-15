@@ -20,9 +20,9 @@
       <p><strong>v-model：</strong>{{ JSON.stringify(period) }}</p>
       <p><strong>区间：</strong>{{ rangeText.start }} ~ {{ rangeText.end }}（{{ rangeText.days }} 天）</p>
       <p class="tip">
-        变粗按「区间起点」归属：周 2026-53 起点是 2026-12-28，所以 → 月 2026-12 → 年 2026。<br />
-        变细按「记忆里停的那天」投影：先在区间里找它，找不到就保住周几/几号/月日。
-        日 → 年 → 日 可无损往返，除非中途在粗维度上跳到了别的年份。
+        切维度只是换一个「包含锚点」的窗口，锚点不动，所以任意方向来回切都无损：<br />
+        日 2026-07-20 → 年 → 日 还是 2026-07-20；日 2027-01-01 → 周 2026-53 → 年 2027 → 日 还是 2027-01-01。<br />
+        在面板里点选 / 外部赋值时，锚点才重新投影进新区间（保住周几 / 几号 / 月日，裁到月末，最后退回区间起点）。
       </p>
     </div>
 
@@ -44,6 +44,7 @@ const period = ref({ range: 'day', date: '2026-07-20' })
 
 const presets = [
   { label: '日 2026-07-20', value: { range: 'day', date: '2026-07-20' } },
+  { label: '日 2027-01-01', value: { range: 'day', date: '2027-01-01' } },
   { label: '周 2026-53', value: { range: 'week', date: '2026-53' } },
   { label: '月 2026-12', value: { range: 'month', date: '2026-12' } },
   { label: '年 2026', value: { range: 'year', date: '2026' } },

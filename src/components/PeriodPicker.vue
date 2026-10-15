@@ -28,7 +28,6 @@ import {
   RANGES,
   RANGE_LABELS,
   formatPeriod,
-  isCoarser,
   periodOf,
   parsePeriod,
   projectDay,
@@ -44,16 +43,17 @@ import {
  *   //        | { range: 'year',  date: '2026' }
  *
  * 内部同时维护两样东西：
- *   - period：当前区间，决定对外吐出的 { range, date }
- *   - anchor：记忆里用户停在哪一天，只在切换维度时用来还原位置
+ *   - anchor：记忆里用户停在哪一天（唯一的真状态）
+ *   - period：当前区间，始终等于「包含 anchor 的那个 range 区间」，是纯派生值
  *
  * 切换规则（这是「符合常识」的关键）：
- *   - 变粗（日 -> 周 -> 月 -> 年）：按「当前区间从哪开始」去归属更粗的维度。
- *     例：周 2026-53 的起点是 2026-12-28，所以 -> 月 2026-12、-> 年 2026。
- *   - 变细（年 -> 月 -> 周 -> 日）：把 anchor 投影回当前区间再开窗，
- *     先在区间里找 anchor 本身，找不到就保住「周几 / 几号 / 几月几号」，最后退回区间起点。
- *     例：日 2026-07-20 -> 年 -> 日，仍然是 2026-07-20（无损往返）。
- *   - 在面板里点选 / 父组件赋值：区间听传入的，anchor 投影进新区间。
+ *   - 切维度（不分粗细）：只是换一个「包含 anchor 的窗口」，anchor 完全不动。
+ *     所以任意方向来回切都无损：日 2026-07-20 -> 年 -> 日 仍是 2026-07-20，
+ *     日 2027-01-01 -> 周 2026-53 -> 年 2027 -> 日 仍是 2027-01-01。
+ *     ⚠️ 不要用「区间起点」去归属更粗的维度：跨年周（2026-53 起点 2026-12-28）会把
+ *     2027-01-01 一路拉进 2026-12 / 2026 年，最后回到 2026-01-01，白丢一整年。
+ *   - 在面板里点选 / 父组件赋值：区间听传入的，anchor 投影进新区间
+ *     （先在区间里找 anchor 本身，找不到就保住「周几 / 几号 / 几月几号」，最后退回区间起点）。
  *     例：年视图点 2027，再切回日 -> 2027-07-20（记住月日）。
  */
 const PICKER_TYPE = { day: 'date', month: 'month', year: 'year' }
@@ -63,7 +63,8 @@ const model = defineModel({ type: Object, default: () => ({ range: 'day', date: 
 
 const range = ref('day')
 const anchor = shallowRef(dayjs())
-const period = shallowRef(periodOf(anchor.value, 'day'))
+// 当前区间永远是「包含 anchor 的那个窗口」，没有第二份状态，也就不会两边打架
+const period = computed(() => periodOf(anchor.value, range.value))
 
 function currentModel() {
   return { range: range.value, date: formatPeriod(period.value, range.value) }
@@ -85,9 +86,9 @@ function applyPeriod(input) {
     }
     return
   }
-  range.value = input.range
-  period.value = parsed
+  // 先投影锚点，再切维度：anchor 落在新区间里，period 派生出来就等于它
   anchor.value = projectDay(anchor.value, parsed, input.range)
+  range.value = input.range
   syncOut()
 }
 
@@ -102,17 +103,6 @@ const rangeModel = computed({
   get: () => range.value,
   set: (next) => {
     if (next === range.value) return
-
-    if (isCoarser(next, range.value)) {
-      // 变粗：用当前区间的起点去归属更粗的维度；anchor 留在原处，等变细时再投影
-      period.value = periodOf(period.value.start, next)
-    } else {
-      // 变细：先把 anchor 投影回当前区间，再开窗
-      const day = projectDay(anchor.value, period.value, range.value)
-      anchor.value = day
-      period.value = periodOf(day, next)
-    }
-
     range.value = next
     syncOut()
   },
