@@ -2,7 +2,16 @@
   <div class="period-demo">
     <h3>时间维度选择器（日 / 周 / 月 / 年）</h3>
 
-    <PeriodPicker v-model="period" />
+    <div class="drill">
+      <span>钻取口径（粗 → 细 时落在区间的哪一天）：</span>
+      <el-radio-group v-model="drillTo" size="small">
+        <el-radio-button v-for="item in DRILL_MODES" :key="item" :value="item">
+          {{ DRILL_MODE_LABELS[item] }}
+        </el-radio-button>
+      </el-radio-group>
+    </div>
+
+    <PeriodPicker v-model="period" :drill-to="drillTo" />
 
     <div class="presets">
       <span>程序赋值：</span>
@@ -22,7 +31,8 @@
       <p class="tip">
         切维度只是换一个「包含锚点」的窗口，锚点不动，所以任意方向来回切都无损：<br />
         日 2026-07-20 → 年 → 日 还是 2026-07-20；日 2027-01-01 → 周 2026-53 → 年 2027 → 日 还是 2027-01-01。<br />
-        在面板里点选 / 外部赋值时，锚点才重新投影进新区间（保住周几 / 几号 / 月日，裁到月末，最后退回区间起点）。
+        换成「区间终点」口径后：年 2026 → 日 会落在 2026-12-31（今年的话是个未来日期），
+        且「日 2026-07-20 → 周 → 日」会漂到周日 2026-07-26。改口径后请重新切几次维度看效果。
       </p>
     </div>
 
@@ -38,9 +48,16 @@
 <script setup>
 import { computed, ref, watch } from 'vue'
 import PeriodPicker from './PeriodPicker.vue'
-import { RANGE_LABELS, formatPeriod, parsePeriod } from '../utils/period'
+import {
+  DRILL_MODE_LABELS,
+  DRILL_MODES,
+  RANGE_LABELS,
+  formatPeriod,
+  parsePeriod,
+} from '../utils/period'
 
 const period = ref({ range: 'day', date: '2026-07-20' })
+const drillTo = ref('anchor')
 
 const presets = [
   { label: '日 2026-07-20', value: { range: 'day', date: '2026-07-20' } },
@@ -100,6 +117,15 @@ trace.value.unshift(`${describe(period.value)}　（初始）`)
   flex-wrap: wrap;
   color: #909399;
   font-size: 13px;
+}
+.drill {
+  margin-bottom: 12px;
+  color: #909399;
+  font-size: 13px;
+}
+.drill .el-radio-group {
+  margin-left: 8px;
+  vertical-align: middle;
 }
 .result {
   margin-top: 16px;

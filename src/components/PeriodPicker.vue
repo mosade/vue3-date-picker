@@ -27,10 +27,11 @@ import {
   PERIOD_FORMAT,
   RANGES,
   RANGE_LABELS,
+  anchorFor,
   formatPeriod,
+  isCoarser,
   periodOf,
   parsePeriod,
-  projectDay,
 } from '../utils/period'
 
 /**
@@ -47,17 +48,31 @@ import {
  *   - period：当前区间，始终等于「包含 anchor 的那个 range 区间」，是纯派生值
  *
  * 切换规则（这是「符合常识」的关键）：
- *   - 切维度（不分粗细）：只是换一个「包含 anchor 的窗口」，anchor 完全不动。
- *     所以任意方向来回切都无损：日 2026-07-20 -> 年 -> 日 仍是 2026-07-20，
- *     日 2027-01-01 -> 周 2026-53 -> 年 2027 -> 日 仍是 2027-01-01。
+ *   - 变粗（日 -> 周 -> 月 -> 年）：换一个「包含 anchor 的窗口」，anchor 不动。
+ *     日 2026-12-30 -> 周 2026-53 -> 年 2026，锚点还在 12-30，切回日就是 12-30。
  *     ⚠️ 不要用「区间起点」去归属更粗的维度：跨年周（2026-53 起点 2026-12-28）会把
  *     2027-01-01 一路拉进 2026-12 / 2026 年，最后回到 2026-01-01，白丢一整年。
- *   - 在面板里点选 / 父组件赋值：区间听传入的，anchor 投影进新区间
- *     （先在区间里找 anchor 本身，找不到就保住「周几 / 几号 / 几月几号」，最后退回区间起点）。
+ *   - 变细（年 -> 月 -> 周 -> 日）：按 drillTo 口径定锚点，默认 'anchor' = 锚点不动，
+ *     所以任意方向来回切都无损：日 2026-07-20 -> 年 -> 日 仍是 2026-07-20，
+ *     日 2027-01-01 -> 周 2026-53 -> 年 2027 -> 日 仍是 2027-01-01。
+ *     换成 'start' / 'end' / 'today' 则会重新落点（代价是丢掉记忆，见 anchorFor 的注释）。
+ *   - 在面板里点选 / 父组件赋值：区间听传入的，锚点同样按 drillTo 口径落在新区间里
+ *     （默认口径下保住「周几 / 几号 / 几月几号」，裁到月末，最后退回区间起点）。
  *     例：年视图点 2027，再切回日 -> 2027-07-20（记住月日）。
  */
 const PICKER_TYPE = { day: 'date', month: 'month', year: 'year' }
 const PICKER_FORMAT = { day: 'YYYY-MM-DD', month: 'YYYY 年 MM 月', year: 'YYYY 年' }
+
+const props = defineProps({
+  /**
+   * 钻取口径：粗 -> 细（以及在面板里明确选一段）时，锚点落在区间的哪一天。
+   *   'anchor' 记忆锚点，无损往返（默认）
+   *   'start'  区间起点
+   *   'end'    区间终点
+   *   'today'  今天优先，今天不在区间里就就近 clamp 到端点
+   */
+  drillTo: { type: String, default: 'anchor' },
+})
 
 const model = defineModel({ type: Object, default: () => ({ range: 'day', date: '' }) })
 
@@ -86,8 +101,8 @@ function applyPeriod(input) {
     }
     return
   }
-  // 先投影锚点，再切维度：anchor 落在新区间里，period 派生出来就等于它
-  anchor.value = projectDay(anchor.value, parsed, input.range)
+  // 先按口径定锚点，再切维度：anchor 落在新区间里，period 派生出来就等于它
+  anchor.value = anchorFor(parsed, props.drillTo, anchor.value, input.range)
   range.value = input.range
   syncOut()
 }
@@ -103,6 +118,10 @@ const rangeModel = computed({
   get: () => range.value,
   set: (next) => {
     if (next === range.value) return
+    // 变细时按口径重新落点；'anchor' 口径不动锚点，所以来回切是无损的
+    if (!isCoarser(next, range.value) && props.drillTo !== 'anchor') {
+      anchor.value = anchorFor(period.value, props.drillTo, anchor.value, range.value)
+    }
     range.value = next
     syncOut()
   },

@@ -7,6 +7,17 @@ export const RANGES = ['day', 'week', 'month', 'year']
 /** 维度中文名。 */
 export const RANGE_LABELS = { day: '日', week: '周', month: '月', year: '年' }
 
+/** 钻取口径：粗 -> 细 时锚点落在区间的哪一天。 */
+export const DRILL_MODES = ['anchor', 'start', 'end', 'today']
+
+/** 钻取口径中文名。 */
+export const DRILL_MODE_LABELS = {
+  anchor: '记忆锚点',
+  start: '区间起点',
+  end: '区间终点',
+  today: '今天优先',
+}
+
 /**
  * 每个维度在 v-model 里的 date 格式：
  *   day   "2026-07-20"
@@ -115,5 +126,32 @@ export function projectDay(anchor, period, range = 'day') {
       return clampDay(start.year(), a.isValid() ? a.month() : 0, a.isValid() ? a.date() : 1)
     default:
       return start
+  }
+}
+
+/**
+ * 按「钻取口径」给某个区间算一个锚点，用在粗 -> 细、以及面板里明确选一段的时候。
+ *
+ *   anchor 记住你原来那天（投影进区间，尽量保住周几 / 几号 / 月日）—— 无损，默认口径
+ *   start  区间起点（年 2026 -> 2026-01-01）
+ *   end    区间终点（年 2026 -> 2026-12-31）
+ *   today  今天在区间里就用今天，否则就近 clamp 到区间端点
+ *
+ * ⚠️ end 的两个坑：当年包含今天时会把你定位到未来的 12-31；
+ *    而「选一天 -> 看这一周 -> 回到那一天」会漂到周日（2026-07-20 -> 2026-07-26）。
+ */
+export function anchorFor(period, mode, prevAnchor, range = 'day', today = dayjs()) {
+  switch (mode) {
+    case 'start':
+      return period.start
+    case 'end':
+      return period.end.startOf('day')
+    case 'today': {
+      const t = dayjs(today).startOf('day')
+      if (containsDay(period, t)) return t
+      return t.isBefore(period.start) ? period.start : period.end.startOf('day')
+    }
+    default:
+      return projectDay(prevAnchor, period, range)
   }
 }
