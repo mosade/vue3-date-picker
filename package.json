@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test": "node --import ./test/_loader/register.mjs test/run-all.mjs"
   },
   "dependencies": {
     "dayjs": "^1.11.23",
