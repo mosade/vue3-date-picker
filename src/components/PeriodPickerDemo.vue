@@ -100,7 +100,9 @@ const drillTo = ref('anchor')
 const limitPresets = [
   { label: '不限', earliest: '', latest: '' },
   { label: '最晚 T-1', earliest: '', latest: 'T-1' },
+  { label: '最晚 T-2', earliest: '', latest: 'T-2' },
   { label: '最近 30 天', earliest: 'T-30', latest: 'T-1' },
+  { label: '最近 30 天（T-2）', earliest: 'T-32', latest: 'T-2' },
   { label: 'T-90 ~ T+7', earliest: 'T-90', latest: 'T+7' },
 ]
 const limitIndex = ref(0)
@@ -113,6 +115,7 @@ const todayPresets = [
   { label: '2026-10-15（周四）', value: '2026-10-15' },
   { label: '2026-11-01（月初）', value: '2026-11-01' },
   { label: '2027-01-01（元旦）', value: '2027-01-01' },
+  { label: '2027-01-02（周六）', value: '2027-01-02' },
 ]
 const todayIndex = ref(0)
 const today = computed(() => todayPresets[todayIndex.value].value)
