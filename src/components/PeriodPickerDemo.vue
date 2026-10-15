@@ -13,6 +13,15 @@
     </div>
 
     <div class="drill">
+      <span>模拟今天（不选就用本机时间，零点会自动刷新）：</span>
+      <el-radio-group v-model="todayIndex" size="small">
+        <el-radio-button v-for="(item, index) in todayPresets" :key="item.label" :value="index">
+          {{ item.label }}
+        </el-radio-button>
+      </el-radio-group>
+    </div>
+
+    <div class="drill">
       <span>钻取口径（粗 → 细 时落在区间的哪一天）：</span>
       <el-radio-group v-model="drillTo" size="small">
         <el-radio-button v-for="item in DRILL_MODES" :key="item" :value="item">
@@ -26,6 +35,7 @@
       :drill-to="drillTo"
       :earliest="limits.earliest"
       :latest="limits.latest"
+      :today="today"
     />
 
     <div class="presets">
@@ -47,6 +57,11 @@
         限制生效中：越界的日期在面板里点不动，外部传进来的越界值会被夹到
         {{ limitText }} 边界上。
       </p>
+      <p v-if="limitOn" class="tip">
+        注意限制是「按天」判定的：整周 / 整月 / 整年全在范围外才点不动。所以「含 T-1 的那一周」
+        永远能点（例如 {{ limitExample }}），而今天所在的那一周可能整周都点不动
+        —— 今天正好是周一、限制又是 T-1 时就是这种情况。
+      </p>
       <p class="tip">
         切维度只是换一个「包含锚点」的窗口，锚点不动，所以任意方向来回切都无损：<br />
         日 2026-07-20 → 年 → 日 还是 2026-07-20；日 2027-01-01 → 周 2026-53 → 年 2027 → 日 还是 2027-01-01。<br />
@@ -66,6 +81,7 @@
 
 <script setup>
 import { computed, ref, watch } from 'vue'
+import dayjs from 'dayjs'
 import PeriodPicker from './PeriodPicker.vue'
 import {
   DRILL_MODE_LABELS,
@@ -75,6 +91,7 @@ import {
   parsePeriod,
   resolveLimits,
 } from '../utils/period'
+import { ISO_WEEK_FORMAT, formatIsoWeek } from '../utils/isoWeek'
 
 const period = ref({ range: 'day', date: '2026-07-20' })
 const drillTo = ref('anchor')
@@ -88,13 +105,35 @@ const limitPresets = [
 ]
 const limitIndex = ref(0)
 const limits = computed(() => limitPresets[limitIndex.value])
-const resolved = computed(() => resolveLimits(limits.value))
+
+// 模拟「今天」：用来复现 2026-10-12（周一）这类边缘场景，不选就用本机时间
+const todayPresets = [
+  { label: '真实今天', value: undefined },
+  { label: '2026-10-12（周一）', value: '2026-10-12' },
+  { label: '2026-10-15（周四）', value: '2026-10-15' },
+  { label: '2026-11-01（月初）', value: '2026-11-01' },
+  { label: '2027-01-01（元旦）', value: '2027-01-01' },
+]
+const todayIndex = ref(0)
+const today = computed(() => todayPresets[todayIndex.value].value)
+const todayDayjs = computed(() => (today.value ? dayjs(today.value) : dayjs()))
+
+const resolved = computed(() => resolveLimits(limits.value, todayDayjs.value))
 const limitOn = computed(() => Boolean(resolved.value.min || resolved.value.max))
 const limitText = computed(() => {
   if (!limitOn.value) return '不限'
   const min = resolved.value.min ? resolved.value.min.format('YYYY-MM-DD') : '-∞'
   const max = resolved.value.max ? resolved.value.max.format('YYYY-MM-DD') : '+∞'
   return `${min} ~ ${max}（${limits.value.earliest || '不限'} ~ ${limits.value.latest || '不限'}）`
+})
+
+// 拿上限所在的那一周当例子，避免把日期写死在文案里
+const limitExample = computed(() => {
+  const max = resolved.value.max
+  if (!max) return ''
+  const iso = formatIsoWeek(max, ISO_WEEK_FORMAT)
+  const week = parsePeriod({ range: 'week', date: iso })
+  return week ? `周 ${iso}（${rangeLabel(week)}）` : ''
 })
 
 const presets = [
