@@ -11,6 +11,37 @@ pnpm build    # 产物在 dist/
 pnpm preview  # 预览构建产物
 ```
 
+## 组件用法：`v-model` 直接用 ISO 周字符串
+
+```vue
+<WeekPicker v-model="week" />   <!-- week === "2026-30" -->
+```
+
+`v-model` 的值就是 ISO 周字符串 `"YYYY-WW"`（如 `"2026-30"`、`"2026-53"`），选完即得，
+不用再二次格式化，可以直接存库/传参。
+
+| 传进去的值 | 归一化结果 | 该周区间 |
+| --- | --- | --- |
+| `"2026-30"` | `2026-30` | 2026-07-20 ~ 2026-07-26 |
+| `"2026-53"` | `2026-53` | 2026-12-28 ~ 2027-01-03（跨年） |
+| `"2026-01"` | `2026-01` | 2025-12-29 ~ 2026-01-04（跨年） |
+| `"2026-3"` / `"2026-W30"` / `"2026w30"` | `2026-30` | 同上（宽松输入） |
+| `"2026-12-28"` / `Date` / dayjs 对象 | `2026-53` | 取该日期所在的 ISO 周 |
+| `"2027-53"` / `"abc"` / `""` / `null` | `""` | 无效或该年没有第 53 周 → 视为空值（dev 下 `console.warn`） |
+
+API（`src/components/WeekPicker.vue`）：
+
+| prop / event | 说明 |
+| --- | --- |
+| `v-model` | `String`，ISO 周字符串，默认 `''` |
+| `display-format` | 输入框展示格式，默认 `"GGGG 年第 WW 周"` |
+| `clearable` | 默认 `false` |
+| `disabled` / `size` / `placeholder` | 透传给 `el-date-picker` |
+| `@change` | 选中变化时触发，参数是归一化后的 ISO 周字符串 |
+
+配套工具函数在 `src/utils/isoWeek.js`：`parseIsoWeek` / `normalizeIsoWeek` / `isoWeekRange` /
+`formatIsoWeek` / `weeksInIsoYear`（该模块自己 `dayjs.extend` 依赖的插件，可单独 import）。
+
 ## 为什么不能用 `value-format="YYYY-ww"`
 
 Element Plus 用 dayjs 的 **locale 周**（`w` / `ww`）来格式化周，同时 `YYYY` 是自然年。
@@ -24,8 +55,9 @@ Element Plus 用 dayjs 的 **locale 周**（`w` / `ww`）来格式化周，同�
 
 ## 正确做法
 
-1. `value-format="YYYY-MM-DD"`：`v-model` 存该周的周一（如 `2026-12-28`），没有歧义、也能被
-   `customParseFormat` 正确解析。**不要**用 ISO token 当 `value-format`（见下文「token 速查」）。
+1. 组件内部用 `value-format="YYYY-MM-DD"` 当「日期 ↔ ISO 周」的桥接：Element Plus 吐回来的是一个
+   普通日期（周一），`WeekPicker.vue` 再换算成 ISO 周字符串吐给 `v-model`。**不要**用 ISO token
+   当 `value-format`（见下文「token 速查」）。
 2. `format="GGGG 年第 WW 周"`：只用于输入框展示，`GGGG` / `WW` 是 ISO 周年份与 ISO 周数。
 3. `src/main.js` 中的 dayjs 配置（**必须的是「注册语言包」+「weekStart: 1」这两件**）：
    - `import 'dayjs/locale/zh-cn'`：**必须注册语言包**，否则 Element Plus 内部的 `.locale('zh-cn')`
@@ -36,12 +68,14 @@ Element Plus 用 dayjs 的 **locale 周**（`w` / `ww`）来格式化周，同�
    - `dayjs/plugin/advancedFormat`：渲染 `GGGG` / `WW` 的 token，显式注册，不依赖 Element Plus 顺手注册；
    - `dayjs/plugin/updateLocale`：配合 `dayjs.updateLocale(..., { weekStart: 1 })` 把「周一开头」写死，
      避免语言包缺失时静默变化。
-4. `src/components/WeekPickerDemo.vue` 里的 ISO 周计算全部走 dayjs 的 `isoWeek` 系列：
+4. `src/utils/isoWeek.js` 里的 ISO 周计算全部走 dayjs 的 `isoWeek` 系列：
    - 取 ISO 周：`dayjs(v).format('GGGG-WW')`（等价 `isoWeekYear()` + `isoWeek()`）
    - 取起止：`startOf('isoWeek')` / `endOf('isoWeek')`，周几用 `isoWeekday()`（1=周一 … 7=周日）
    - 由 `"2026-53"` 推日期：`dayjs(new Date(y, 0, 4)).startOf('isoWeek').add(w - 1, 'week')`。
      ⚠️ `isoWeekYear()` **只有 getter 没有 setter**（传参会被忽略），所以不能写
      `dayjs().isoWeekYear(y).isoWeek(w)`，只能从「1 月 4 日必定属于第 1 周」这个锚点推导。
+   - ⚠️ 绝不能让 dayjs 直接解析 `"2026-30"`：它会被当成「2026 年 30 月」得到 `2028-06-01`。
+     所以 `parseIsoWeek` 先用正则把「周字符串」和「日期字符串」分流，只有日期分支才交给 dayjs。
 
 ## token 速查
 
@@ -60,6 +94,10 @@ Element Plus 用 dayjs 的 **locale 周**（`w` / `ww`）来格式化周，同�
 
 ## 校验
 
-ISO 周计算已对 2010-01-01 ~ 2040-12-31 做过往返校验：**11323 天 + 1617 个 ISO 周**，
-在 `zh-cn`（`weekStart=1`）与 `en`（`weekStart=0`）两套 locale 下结果一致，0 差异；
-每个周区间都满足「起始为周一、结束为周日、包含原日期、`format('GGGG-WW')` 回读等于输入」。
+- ISO 周计算对 2010-01-01 ~ 2040-12-31 做了**逐日对拍**：11323 天 / 1619 个 ISO 周，与一个
+  独立的纯 `Date` 参考实现 0 差异；每个周区间都满足「起始为周一、结束为周日、跨度 6 天、
+  包含原日期、`format('GGGG-WW')` 回读等于输入」。
+- 1990 ~ 2060 每年周数与参考实现一致（52/53 年判定）。
+- 21 个宽松/非法输入用例（含 `"2026-3"`、`"2026-W30"`、`"2027-53"`、Date、非法 Date）全部符合预期。
+- 界面实测：点击跨年周行 `2026-12-28 ~ 2027-01-03` → `v-model` 得到 `"2026-53"`（不是 `"2026-01"`）；
+  程序赋值 `"2027-01"` → 输入框显示「2027 年第 01 周」、区间 2027-01-04 ~ 2027-01-10。
