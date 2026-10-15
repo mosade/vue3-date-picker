@@ -7,6 +7,7 @@
     :clearable="clearable"
     :disabled="disabled"
     :size="size"
+    :disabled-date="disabledDate"
     :placeholder="placeholder"
     @change="onChange"
   />
@@ -35,6 +36,8 @@ defineProps({
   clearable: { type: Boolean, default: false },
   disabled: { type: Boolean, default: false },
   size: { type: String, default: undefined },
+  /** 透传给 el-date-picker 的禁用规则，按天判断；整周都在范围外时这一周点不动。 */
+  disabledDate: { type: Function, default: undefined },
   placeholder: { type: String, default: '请选择一周' },
 })
 

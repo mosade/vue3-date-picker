@@ -40,10 +40,8 @@ export function parseIsoWeek(input) {
   const str = String(input).trim()
 
   // 日期输入：取它所在的 ISO 周
-  if (DATE_RE.test(str)) {
-    const date = dayjs(str)
-    return date.isValid() ? { year: date.isoWeekYear(), week: date.isoWeek() } : null
-  }
+  const date = parseStrictDate(str)
+  if (date) return { year: date.isoWeekYear(), week: date.isoWeek() }
 
   const match = WEEK_RE.exec(str)
   if (!match) return null
@@ -53,6 +51,21 @@ export function parseIsoWeek(input) {
   // 2026 年有 53 周、2027 年只有 52 周，越界的周数一律当无效值
   if (week < 1 || week > weeksInIsoYear(year)) return null
   return { year, week }
+}
+
+/**
+ * 严格解析日期字符串，字段越界（如 2026-13-01、2026-02-30）直接判无效。
+ * ⚠️ dayjs 不校验字段范围，会把它滚成另一个合法日期，必须回读比对。
+ */
+function parseStrictDate(str) {
+  const match = DATE_RE.exec(str)
+  if (!match) return null
+  const year = Number(match[1])
+  const month = Number(match[2])
+  const day = Number(match[3])
+  const date = dayjs(new Date(year, month - 1, day))
+  const ok = date.isValid() && date.year() === year && date.month() === month - 1 && date.date() === day
+  return ok ? date : null
 }
 
 /** 统一成规范字符串 "2026-30"；无效输入返回空串。 */

@@ -3,6 +3,16 @@
     <h3>时间维度选择器（日 / 周 / 月 / 年）</h3>
 
     <div class="drill">
+      <span>T-n 限制：</span>
+      <el-radio-group v-model="limitIndex" size="small">
+        <el-radio-button v-for="(item, index) in limitPresets" :key="item.label" :value="index">
+          {{ item.label }}
+        </el-radio-button>
+      </el-radio-group>
+      <span class="resolved">可选范围：{{ limitText }}</span>
+    </div>
+
+    <div class="drill">
       <span>钻取口径（粗 → 细 时落在区间的哪一天）：</span>
       <el-radio-group v-model="drillTo" size="small">
         <el-radio-button v-for="item in DRILL_MODES" :key="item" :value="item">
@@ -11,7 +21,12 @@
       </el-radio-group>
     </div>
 
-    <PeriodPicker v-model="period" :drill-to="drillTo" />
+    <PeriodPicker
+      v-model="period"
+      :drill-to="drillTo"
+      :earliest="limits.earliest"
+      :latest="limits.latest"
+    />
 
     <div class="presets">
       <span>程序赋值：</span>
@@ -28,6 +43,10 @@
     <div class="result">
       <p><strong>v-model：</strong>{{ JSON.stringify(period) }}</p>
       <p><strong>区间：</strong>{{ rangeText.start }} ~ {{ rangeText.end }}（{{ rangeText.days }} 天）</p>
+      <p v-if="limitOn" class="tip">
+        限制生效中：越界的日期在面板里点不动，外部传进来的越界值会被夹到
+        {{ limitText }} 边界上。
+      </p>
       <p class="tip">
         切维度只是换一个「包含锚点」的窗口，锚点不动，所以任意方向来回切都无损：<br />
         日 2026-07-20 → 年 → 日 还是 2026-07-20；日 2027-01-01 → 周 2026-53 → 年 2027 → 日 还是 2027-01-01。<br />
@@ -54,10 +73,29 @@ import {
   RANGE_LABELS,
   formatPeriod,
   parsePeriod,
+  resolveLimits,
 } from '../utils/period'
 
 const period = ref({ range: 'day', date: '2026-07-20' })
 const drillTo = ref('anchor')
+
+// T-n 限制：数据通常只到 T-1，这里顺便演示「最多回看 N 天」和「允许看未来」
+const limitPresets = [
+  { label: '不限', earliest: '', latest: '' },
+  { label: '最晚 T-1', earliest: '', latest: 'T-1' },
+  { label: '最近 30 天', earliest: 'T-30', latest: 'T-1' },
+  { label: 'T-90 ~ T+7', earliest: 'T-90', latest: 'T+7' },
+]
+const limitIndex = ref(0)
+const limits = computed(() => limitPresets[limitIndex.value])
+const resolved = computed(() => resolveLimits(limits.value))
+const limitOn = computed(() => Boolean(resolved.value.min || resolved.value.max))
+const limitText = computed(() => {
+  if (!limitOn.value) return '不限'
+  const min = resolved.value.min ? resolved.value.min.format('YYYY-MM-DD') : '-∞'
+  const max = resolved.value.max ? resolved.value.max.format('YYYY-MM-DD') : '+∞'
+  return `${min} ~ ${max}（${limits.value.earliest || '不限'} ~ ${limits.value.latest || '不限'}）`
+})
 
 const presets = [
   { label: '日 2026-07-20', value: { range: 'day', date: '2026-07-20' } },
@@ -126,6 +164,10 @@ trace.value.unshift(`${describe(period.value)}　（初始）`)
 .drill .el-radio-group {
   margin-left: 8px;
   vertical-align: middle;
+}
+.drill .resolved {
+  margin-left: 12px;
+  color: #e6a23c;
 }
 .result {
   margin-top: 16px;

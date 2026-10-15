@@ -115,9 +115,46 @@ API（`src/components/WeekPicker.vue`）：
 否则跨年周会把 `2027-01-01` 一路拉回 2026（见上面的 ⚠️）。四套口径的实测数据在
 `PeriodPickerDemo.vue` 顶部的「钻取口径」开关里可以直接切换对比。
 
+### T-n 限制 `earliest` / `latest`
+
+数据常常「只到 T-1」「最多回看 90 天」，所以限制用相对今天的偏移量表达：
+
+```vue
+<!-- 数据只到昨天，最多回看 90 天 -->
+<PeriodPicker v-model="period" earliest="T-90" latest="T-1" />
+```
+
+| 写法 | 含义 |
+| --- | --- |
+| `'T'` / `'T0'` | 今天 |
+| `'T-1'` | 昨天（最常见：数据隔天更新） |
+| `'T+7'` | 7 天后（允许选未来） |
+| `-30` / `7`（数字） | 相对今天的偏移天数 |
+| `'2026-01-01'` | 绝对日期（比如数据从某天开始） |
+| `''` / `null` | 不限制 |
+
+行为三条：
+
+1. **面板里越界的格子点不动**：传入的是按天的判定，Element Plus 的年/月面板自己会用
+   `.every()` 聚合 —— 整月/整年全在范围外才禁掉，只有部分可用仍然可点。
+2. **越界的值会被夹到边界**：`{ day: '2026-07-20' }` + `earliest="T-30"` → `2026-09-15`。
+   注意这是**单向**的：之后把限制放开，值不会自己弹回 `2026-07-20`。
+3. **夹取只作用于锚点**，所以粗粒度区间可能只与限制有交集、而不完全落在里面。
+   例：限制 `T-30 ~ T-1` 时可以选到周 `2026-42`（覆盖 10-12 ~ 10-18，超出上限 10-14 的那几天）。
+   这是刻意的：这一周仍有可用数据，不该整周禁掉。
+
+`today` prop 可覆盖「今天」，便于测试或对接服务端日期：
+
+```vue
+<PeriodPicker v-model="period" today="2026-10-15" earliest="T-30" latest="T-1" />
+```
+
+限制值写错时（`'abc'`、`'T90'`）dev 下会 `console.warn`，不会静默当成「不限制」。
+
 配套工具函数在 `src/utils/period.js`：`periodOf` / `parsePeriod` / `formatPeriod` / `projectDay` /
 `anchorFor` / `isCoarser` / `RANGES` / `RANGE_LABELS` / `PERIOD_FORMAT` / `DRILL_MODES` /
-`DRILL_MODE_LABELS`。`PeriodPickerDemo.vue` 里有一份
+`DRILL_MODE_LABELS` / `parseLimitDate` / `resolveLimits` / `withinLimits` / `clampToLimits` /
+`periodWithinLimits`。`PeriodPickerDemo.vue` 里有一份
 「切换轨迹」的可视化，改规则时可以直接对着看每次切换算成了什么。
 
 ## 为什么不能用 `value-format="YYYY-ww"`
@@ -186,4 +223,9 @@ Element Plus 用 dayjs 的 **locale 周**（`w` / `ww`）来格式化周，同�
 - 钻取口径：K~R 共 8 组断言覆盖 `anchor` / `start` / `end` / `today` 四种口径的落点，
   以及两条必须成立的底线 ——「变粗永远以锚点为准」（四种口径下 `2027-01-01 → 周 → 月` 都是 `2027-01`）、
   「任何口径下区间恒含锚点」。口径带来的位置丢失也逐条记录下来，不做隐藏。
+- T-n 限制：S~V 共 4 组断言覆盖口径解析（`T` / `T-1` / `T+7` / 小写 / 数字 / 绝对日期 / 非法值）、
+  `resolveLimits`（写反自动换回来）、含端点的范围内判定、夹取、区间与限制的交集。
+  另外修掉一个静默 bug：`dayjs('2026-13-01')` 不会报错，而是**滚动**成 `2027-01-01`，
+  于是 `'2026-13-01'`、`'2026-02-30'` 会被当成合法日期。现在 `parsePeriod` 与
+  `parseIsoWeek` 都做回读比对，字段越界一律判无效（闰年 2024-02-29 仍然合法）。
   界面侧也按同一批链路实测过一遍，控制台无 error/warning。

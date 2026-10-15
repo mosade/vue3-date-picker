@@ -36,6 +36,18 @@ const DAY_RE = /^\d{4}-\d{2}-\d{2}$/
 const MONTH_RE = /^(\d{4})-(\d{1,2})$/
 const YEAR_RE = /^(\d{4})$/
 
+/**
+ * 严格解析 YYYY-MM-DD。
+ * ⚠️ dayjs 不校验字段范围，会把 '2026-13-01' 悄悄滚成 '2027-01-01'、'2026-02-30' 滚成 '2026-03-02'，
+ *    所以必须回读比对一次，否则非法日期会变成另一个合法日期。
+ */
+function parseStrictDay(input) {
+  const str = String(input).trim()
+  if (!DAY_RE.test(str)) return null
+  const day = dayjs(str)
+  return day.isValid() && day.format('YYYY-MM-DD') === str ? day.startOf('day') : null
+}
+
 /** 维度 a 是否比维度 b 更粗。 */
 export function isCoarser(a, b) {
   return RANGES.indexOf(a) > RANGES.indexOf(b)
@@ -86,8 +98,8 @@ export function parsePeriod(input) {
   }
 
   if (!DAY_RE.test(str)) return null
-  const day = dayjs(str)
-  return day.isValid() ? periodOf(day, 'day') : null
+  const day = parseStrictDay(str)
+  return day ? periodOf(day, 'day') : null
 }
 
 /** 区间是否包含某天。 */
@@ -154,4 +166,82 @@ export function anchorFor(period, mode, prevAnchor, range = 'day', today = dayjs
     default:
       return projectDay(prevAnchor, period, range)
   }
+}
+
+// "T" / "T0" / "T-1" / "T+7"
+const T_OFFSET_RE = /^[Tt](?:([+-])(\d{1,4})|0)?$/
+
+/**
+ * T-n 限制口径：把限制值解析成具体日期。
+ *
+ *   'T'         今天
+ *   'T-1'       昨天        （数据通常只到 T-1）
+ *   'T+7'       7 天后      （允许选未来）
+ *   -7 / 7      数字 = 相对今天的偏移天数
+ *   '2026-01-01' 绝对日期
+ *   '' / null   不限制
+ */
+export function parseLimitDate(input, today = dayjs()) {
+  if (input === null || input === undefined || input === '') return null
+
+  const base = dayjs(today).startOf('day')
+  if (!base.isValid()) return null
+
+  if (typeof input === 'number') {
+    return Number.isFinite(input) ? base.add(input, 'day') : null
+  }
+
+  const str = String(input).trim()
+
+  const offset = T_OFFSET_RE.exec(str)
+  if (offset) {
+    const days = Number(offset[2] ?? 0)
+    return base.add(offset[1] === '-' ? -days : days, 'day')
+  }
+
+  const day = parseStrictDay(str)
+  if (day) return day
+
+  return null
+}
+
+/** 解析 earliest / latest，得到 { min, max }；没限制的那端为 null。写反了会自动换回来。 */
+export function resolveLimits(input = {}, today = dayjs()) {
+  let min = parseLimitDate(input.earliest, today)
+  let max = parseLimitDate(input.latest, today)
+  if (min && max && min.isAfter(max)) {
+    ;[min, max] = [max, min]
+  }
+  return { min, max }
+}
+
+/** 某天是否落在限制范围内（含端点）。 */
+export function withinLimits(day, limits) {
+  if (!limits) return true
+  const d = dayjs(day)
+  if (!d.isValid()) return true
+  if (limits.min && d.isBefore(limits.min, 'day')) return false
+  if (limits.max && d.isAfter(limits.max, 'day')) return false
+  return true
+}
+
+/** 把某天夹进限制范围；没有限制就原样返回。 */
+export function clampToLimits(day, limits) {
+  const d = dayjs(day)
+  if (!limits || !d.isValid()) return d
+  if (limits.min && d.isBefore(limits.min, 'day')) return limits.min
+  if (limits.max && d.isAfter(limits.max, 'day')) return limits.max
+  return d
+}
+
+/**
+ * 某个区间和限制范围有没有交集 —— 面板里决定「这一格能不能点」时用它。
+ * 注意 Element Plus 的年/月面板自己会用 .every() 聚合按天判定，所以一般直接传
+ * disabled-date = (time) => !withinLimits(time, limits) 就够了。
+ */
+export function periodWithinLimits(period, limits) {
+  if (!limits) return true
+  if (limits.min && period.end.isBefore(limits.min, 'day')) return false
+  if (limits.max && period.start.isAfter(limits.max, 'day')) return false
+  return true
 }

@@ -6,7 +6,12 @@
       </el-radio-button>
     </el-radio-group>
 
-    <WeekPicker v-if="range === 'week'" v-model="pickerValue" :clearable="false" />
+    <WeekPicker
+      v-if="range === 'week'"
+      v-model="pickerValue"
+      :clearable="false"
+      :disabled-date="disabledDate"
+    />
 
     <el-date-picker
       v-else
@@ -14,6 +19,7 @@
       :type="PICKER_TYPE[range]"
       :format="PICKER_FORMAT[range]"
       :value-format="PERIOD_FORMAT[range]"
+      :disabled-date="disabledDate"
       :clearable="false"
     />
   </div>
@@ -28,10 +34,13 @@ import {
   RANGES,
   RANGE_LABELS,
   anchorFor,
+  clampToLimits,
   formatPeriod,
   isCoarser,
   periodOf,
   parsePeriod,
+  resolveLimits,
+  withinLimits,
 } from '../utils/period'
 
 /**
@@ -72,6 +81,15 @@ const props = defineProps({
    *   'today'  今天优先，今天不在区间里就就近 clamp 到端点
    */
   drillTo: { type: String, default: 'anchor' },
+  /**
+   * T-n 限制：可选范围的最小/最大日期，含端点。空字符串 = 不限制。
+   *   'T' 今天 / 'T-1' 昨天 / 'T+7' 七天后 / -30 相对天数 / '2026-01-01' 绝对日期
+   * 例：数据只到昨天、最多回看 90 天 -> earliest="T-90" latest="T-1"
+   */
+  earliest: { type: [String, Number], default: '' },
+  latest: { type: [String, Number], default: '' },
+  /** 覆盖「今天」，便于测试或对接服务端日期；不传用本机当前时间。 */
+  today: { type: [String, Date], default: undefined },
 })
 
 const model = defineModel({ type: Object, default: () => ({ range: 'day', date: '' }) })
@@ -80,6 +98,23 @@ const range = ref('day')
 const anchor = shallowRef(dayjs())
 // 当前区间永远是「包含 anchor 的那个窗口」，没有第二份状态，也就不会两边打架
 const period = computed(() => periodOf(anchor.value, range.value))
+
+const now = computed(() => (props.today ? dayjs(props.today) : dayjs()))
+const limits = computed(() =>
+  resolveLimits({ earliest: props.earliest, latest: props.latest }, now.value),
+)
+/** 有没有真的配了限制（两端都空就不限制，也就不做任何 clamp / disable）。 */
+const limitOn = computed(() => Boolean(limits.value.min || limits.value.max))
+
+/** 面板里按天禁用：整周/整月/整年都在范围外时 Element Plus 会自动把那一格禁掉。 */
+function disabledDate(time) {
+  return !withinLimits(dayjs(time), limits.value)
+}
+
+/** 锚点必须落在可选范围内，否则派生出来的区间可能是选不到的。 */
+function withLimits(day) {
+  return clampToLimits(day, limits.value)
+}
 
 function currentModel() {
   return { range: range.value, date: formatPeriod(period.value, range.value) }
@@ -101,8 +136,8 @@ function applyPeriod(input) {
     }
     return
   }
-  // 先按口径定锚点，再切维度：anchor 落在新区间里，period 派生出来就等于它
-  anchor.value = anchorFor(parsed, props.drillTo, anchor.value, input.range)
+  // 先按口径定锚点，再按限制裁剪，最后切维度：anchor 落在新区间里，period 派生出来就等于它
+  anchor.value = withLimits(anchorFor(parsed, props.drillTo, anchor.value, input.range))
   range.value = input.range
   syncOut()
 }
@@ -120,12 +155,36 @@ const rangeModel = computed({
     if (next === range.value) return
     // 变细时按口径重新落点；'anchor' 口径不动锚点，所以来回切是无损的
     if (!isCoarser(next, range.value) && props.drillTo !== 'anchor') {
-      anchor.value = anchorFor(period.value, props.drillTo, anchor.value, range.value)
+      anchor.value = withLimits(anchorFor(period.value, props.drillTo, anchor.value, range.value))
     }
     range.value = next
     syncOut()
   },
 })
+
+/** 限制变化（或被父组件改写）时，把锚点拉回可选范围。 */
+function applyLimits() {
+  warnBadLimit('earliest', props.earliest, limits.value.min)
+  warnBadLimit('latest', props.latest, limits.value.max)
+  if (!limitOn.value) return
+  const clamped = withLimits(anchor.value)
+  if (!clamped.isSame(anchor.value)) {
+    anchor.value = clamped
+    syncOut()
+  }
+}
+
+// 限制值写错时别静默当成「不限制」，否则会以为是组件没生效
+function warnBadLimit(name, raw, parsed) {
+  if (!import.meta.env.DEV || raw === '' || raw === null || raw === undefined) return
+  if (!parsed) {
+    console.warn(
+      `[PeriodPicker] ${name}="${raw}" 无法识别，已忽略。支持 'T' / 'T-1' / 'T+7' / -30 / '2026-01-01'。`,
+    )
+  }
+}
+
+watch([() => props.earliest, () => props.latest, () => props.today], applyLimits)
 
 watch(
   model,
@@ -140,6 +199,8 @@ watch(
 )
 
 // 没绑 v-model 或外面给的是空值时，补一个可用的初始值
+// 顺便把「本来就配了限制、但传进来的值越界」的情况拉回范围内
+applyLimits()
 syncOut()
 </script>
 
