@@ -1,0 +1,132 @@
+<template>
+  <div class="period-demo">
+    <h3>时间维度选择器（日 / 周 / 月 / 年）</h3>
+
+    <PeriodPicker v-model="period" />
+
+    <div class="presets">
+      <span>程序赋值：</span>
+      <el-button
+        v-for="item in presets"
+        :key="item.label"
+        size="small"
+        @click="period = { ...item.value }"
+      >
+        {{ item.label }}
+      </el-button>
+    </div>
+
+    <div class="result">
+      <p><strong>v-model：</strong>{{ JSON.stringify(period) }}</p>
+      <p><strong>区间：</strong>{{ rangeText.start }} ~ {{ rangeText.end }}（{{ rangeText.days }} 天）</p>
+      <p class="tip">
+        变粗按「区间起点」归属：周 2026-53 起点是 2026-12-28，所以 → 月 2026-12 → 年 2026。<br />
+        变细按「记忆里停的那天」投影：先在区间里找它，找不到就保住周几/几号/月日。
+        日 → 年 → 日 可无损往返，除非中途在粗维度上跳到了别的年份。
+      </p>
+    </div>
+
+    <div v-if="trace.length" class="trace">
+      <p class="trace-title">切换轨迹（最新在上）</p>
+      <ul>
+        <li v-for="(item, index) in trace" :key="index">{{ item }}</li>
+      </ul>
+    </div>
+  </div>
+</template>
+
+<script setup>
+import { computed, ref, watch } from 'vue'
+import PeriodPicker from './PeriodPicker.vue'
+import { RANGE_LABELS, formatPeriod, parsePeriod } from '../utils/period'
+
+const period = ref({ range: 'day', date: '2026-07-20' })
+
+const presets = [
+  { label: '日 2026-07-20', value: { range: 'day', date: '2026-07-20' } },
+  { label: '周 2026-53', value: { range: 'week', date: '2026-53' } },
+  { label: '月 2026-12', value: { range: 'month', date: '2026-12' } },
+  { label: '年 2026', value: { range: 'year', date: '2026' } },
+]
+
+const rangeText = computed(() => {
+  const parsed = parsePeriod(period.value)
+  if (!parsed) return { start: '-', end: '-', days: 0 }
+  return {
+    start: parsed.start.format('YYYY-MM-DD'),
+    end: parsed.end.format('YYYY-MM-DD'),
+    days: parsed.end.startOf('day').diff(parsed.start.startOf('day'), 'day') + 1,
+  }
+})
+
+// 轨迹只是为了把「切换时怎么算的」摊开给人看
+const trace = ref([])
+
+function describe(value) {
+  const label = RANGE_LABELS[value.range] ?? value.range
+  const parsed = parsePeriod(value)
+  if (!parsed) return `${label} ${value.date}（无效）`
+  return `${label} ${formatPeriod(parsed, value.range)} → ${rangeLabel(parsed)}`
+}
+
+function rangeLabel(parsed) {
+  return `${parsed.start.format('YYYY-MM-DD')} ~ ${parsed.end.format('YYYY-MM-DD')}`
+}
+
+watch(
+  period,
+  (now, before) => {
+    trace.value.unshift(`${describe(now)}　←　${describe(before)}`)
+    if (trace.value.length > 8) trace.value.pop()
+  },
+  { deep: true },
+)
+
+// 首次渲染时补一条初始状态，方便对照
+trace.value.unshift(`${describe(period.value)}　（初始）`)
+</script>
+
+<style scoped>
+.period-demo {
+  padding: 24px;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+.presets {
+  margin-top: 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  color: #909399;
+  font-size: 13px;
+}
+.result {
+  margin-top: 16px;
+  padding: 12px 16px;
+  background: #f5f7fa;
+  border-radius: 6px;
+  line-height: 1.8;
+}
+.result p {
+  margin: 4px 0;
+}
+.tip {
+  color: #909399;
+  font-size: 13px;
+  margin-top: 8px !important;
+}
+.trace {
+  margin-top: 16px;
+  font-size: 13px;
+  color: #606266;
+}
+.trace-title {
+  margin: 0 0 6px;
+  color: #303133;
+}
+.trace ul {
+  margin: 0;
+  padding-left: 18px;
+  line-height: 1.9;
+}
+</style>
