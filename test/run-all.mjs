@@ -15,6 +15,7 @@ const files = [
   'period.mjs',
   'drill.mjs',
   'drill-cost.mjs',
+  'date-range.mjs',
   'limits.mjs',
   'limit-edge.mjs',
   'limit-edge2.mjs',

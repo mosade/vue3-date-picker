@@ -1,7 +1,7 @@
 # 验证脚本
 
 ```bash
-pnpm test                      # 跑全部 8 个文件
+pnpm test                      # 跑全部 10 个文件
 node --import ./test/_loader/register.mjs test/limit-edge2.mjs   # 只跑一个
 ```
 
@@ -16,6 +16,7 @@ node --import ./test/_loader/register.mjs test/limit-edge2.mjs   # 只跑一个
 | `period.mjs` | 维度切换 A~J：日→年→日 往返无损、跨年周归属、月末/闰日裁切、`projectDay`、四种维度 parse/format 往返、非法输入 |
 | `drill.mjs` | 钻取口径 K~R：`anchor` / `start` / `end` / `today` 的落点；底线「变粗永远以锚点为准」「区间恒含锚点」 |
 | `drill-cost.mjs` | 非 `anchor` 口径丢位置的代价（日 → 周 → 日 会漂到周末/周初） |
+| `date-range.mjs` | `DateRangePicker` 跨度 DP：`1M` / `30D` / `2W` / `1Y` 解析、自然月边界（含闰年与月末）、正逆序区间判定、超跨度裁剪，以及 500 天 × 4 单位的属性检查 |
 | `limits.mjs` | T-n 限制 S~V：口径解析（`T` / `T-1` / `T+7` / 小写 / 数字 / 绝对日期 / 非法值）、`resolveLimits` 写反自动换回、含端点判定、夹取、区间与限制的交集 |
 | `limit-edge.mjs` | T-n 边缘 W~Z：`T-30` 跨月/跨年/闰年；今天 `2026-10-12` 时各维度可点性；越界夹取；极端限制 |
 | `limit-edge2.mjs` | T-n 边缘 AA~AF：今天=周一 vs 周四是「本周能不能点」的分水岭、边界落在周中、贴边、属性测试（11626 个可选区间 × 279024 组口径/前值组合）、`T-n` 的日历日语义与 `Date` 参考对拍 |

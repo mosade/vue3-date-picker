@@ -1,12 +1,14 @@
 <template>
   <div class="page">
-    <h1>Element Plus 日期 / 周 / 维度选择器 Demo</h1>
+    <h1>Element Plus 日期范围 / 周 / 维度选择器 Demo</h1>
+    <DateRangePickerDemo />
     <PeriodPickerDemo />
     <WeekPickerDemo />
   </div>
 </template>
 
 <script setup>
+import DateRangePickerDemo from './components/DateRangePickerDemo.vue'
 import PeriodPickerDemo from './components/PeriodPickerDemo.vue'
 import WeekPickerDemo from './components/WeekPickerDemo.vue'
 </script>

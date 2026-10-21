@@ -2,6 +2,7 @@
 
 Element Plus 日期选择器 Demo：
 
+- **日期范围选择器**（`DateRangePicker`）：同时支持外部 `disabled-date` 和最大跨度（如 `1M` / `30D` / `2W`）。
 - **维度选择器**（`PeriodPicker`）：日 / 周 / 月 / 年 随时切换，`v-model` 形如 `{ range: 'year', date: '2026' }`。
 - **周选择器**（`WeekPicker`）：一周从**周一**开始，按 **ISO 8601** 计算跨年周，`v-model` 直接是 `"2026-30"`。
 
@@ -13,6 +14,74 @@ pnpm dev      # http://localhost:5173
 pnpm build    # 产物在 dist/
 pnpm preview  # 预览构建产物
 ```
+
+## 日期范围选择器：`disabledDate` + 最大跨度
+
+```vue
+<script setup>
+import { ref } from 'vue'
+import dayjs from 'dayjs'
+import DateRangePicker from './components/DateRangePicker.vue'
+
+const dates = ref(['2026-10-01', '2026-10-31'])
+
+function disabledDate(time) {
+  // 例：禁用周末
+  return [0, 6].includes(dayjs(time).day())
+}
+</script>
+
+<template>
+  <DateRangePicker
+    v-model="dates"
+    range="1M"
+    :disabled-date="disabledDate"
+  />
+</template>
+```
+
+`v-model` 是形如 `["2026-10-01", "2026-10-31"]` 的字符串数组。`range` 表示**最多可选多大跨度**：
+
+| `range` | 含义 |
+| --- | --- |
+| `"1M"` / `"month"` / `{ value: 1, unit: "month" }` | 1 个自然月 |
+| `"30D"` / `30` | 30 天 |
+| `"2W"` | 2 周 |
+| `"1Y"` | 1 年 |
+| `""` / 不传 | 不限制跨度 |
+
+三条关键行为：
+
+1. **第一次点起始日后立刻限制第二端**：以起始日为锚点，超出上下边界的日期马上变灰。
+   例如起始日 `2026-10-10` + `range="1M"`，可选窗口是 `2026-09-10 ~ 2026-11-10`，`11-11` 起禁用。
+2. **外部禁用规则与跨度限制同时生效**：`disabled-date` 返回 `true`，或日期超出跨度，任一条件都会禁用。
+3. **程序赋值也兜底**：父组件传入超过最大跨度的值时，终点会裁到最大边界，并触发 `range-exceeded`。
+   `range` 从大改小时，当前值也会跟着裁到新边界。
+
+`1M` 按自然日历计算，不是固定 30/31 天：`2026-01-31 + 1M` 的终点是 `2026-02-28`，
+`2026-06-15 + 1M` 的终点是 `2026-07-15`。终点包含在可选范围内，所以按“日期个数”显示时，
+一个自然月可能跨 31 或 32 个日期；需要固定天数请用 `30D` / `31D`。
+
+API（`src/components/DateRangePicker.vue`）：
+
+| prop / event | 说明 |
+| --- | --- |
+| `v-model` | `String[]`，默认 `[]`；清空后也是 `[]` |
+| `range` | 最大跨度，支持字符串、天数或 `{ value, unit }` |
+| `disabled-date` | 外部禁用规则，参数与 Element Plus 一致 |
+| `show-hint` | 第一次选起始日后是否显示本次可选窗口，默认 `true` |
+| `editable` | 是否允许手输，默认 `false`，防止绕过面板限制 |
+| `format` / `value-format` | 透传给 `el-date-picker`，默认都是 `YYYY-MM-DD` |
+| `clearable` / `disabled` / `size` / `unlink-panels` / `default-value` | 透传给 `el-date-picker` |
+| `@change` | 选择完成或清空后触发，参数是归一化后的数组 |
+| `@range-exceeded` | 超跨度值被裁剪时触发：`{ value, corrected, range }` |
+| `@calendar-change` / `@visible-change` | 与 Element Plus 的同名事件对应 |
+
+组件关闭面板后会解除“第一次点选”产生的临时边界，因此下次可以从任意日期重新开始选；
+已经写入 `v-model` 的完整区间不受影响。
+
+跨度工具函数在 `src/utils/dateRange.js`：`parseRangeSpan` / `formatRangeSpan` /
+`getRangeBounds` / `isWithinRangeBounds` / `isRangeWithinSpan` / `clampRangeToSpan`。
 
 ## 组件用法：`v-model` 直接用 ISO 周字符串
 
@@ -270,3 +339,6 @@ Element Plus 用 dayjs 的 **locale 周**（`w` / `ww`）来格式化周，同�
   「锚点必须落在该区间内」和「锚点必须在限制范围内」（夹取不能把锚点挤出选中区间）。
   AF 另有 `400 天 × 6 个偏移`（`-1/-7/-30/-90/+1/+7`）与 `Date` 参考实现逐日对拍，0 差异，
   确认 `T-n` 走的是**日历日**语义（跨月/跨年/闰日都对）。
+- 日期范围跨度：DA~DE 覆盖 `range` 解析、自然月边界（月末 + 闰年）、上下界含端点判定、
+  正逆序区间、超跨度裁剪，以及 `500 天 × 4 个单位` 的属性检查。界面侧实测
+  `2026-10-10 + 1M` 时 `11-10` 可选、`11-11` 起禁用；周末禁用规则与跨度限制可同时生效。
